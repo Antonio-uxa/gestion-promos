@@ -555,7 +555,7 @@ def status_resumen():
         item["real_total"] = round(item["real_total"], 2)
         item["fecha_creacion"] = item["fecha_creacion"].isoformat() + 'Z' if item["fecha_creacion"] else None
         item["fecha_ultima"] = item["fecha_ultima"].isoformat() + 'Z' if item["fecha_ultima"] else None
-        por_paquete.append(item)
+        por_paquete.append(item) 
 
     por_paquete.sort(key=lambda x: x["real_total"], reverse=True)
 
@@ -778,4 +778,4 @@ if __name__ == '__main__':
             db.session.add(Promocion(categoria="Bonos", nombre="Bono Texto"))
             db.session.add(Promocion(categoria="Bonos", nombre="Bono Imagen"))
             db.session.commit()
-    app.run(debug=True, port=5000)
+    app.run(host='0.0.0.0', port=5000, debug=True)

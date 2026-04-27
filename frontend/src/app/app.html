@@ -4,6 +4,7 @@
     <button (click)="setRol('analista')" [class.active]="rolActual==='analista'">MODO ANALISTA</button>
     <button (click)="setRol('admin')" [class.active]="rolActual==='admin'">ADMINISTRADOR</button>
     <button (click)="setRol('dashboard')" [class.active]="rolActual==='dashboard'">STATUS</button>
+    <button (click)="cambiarUrlBackend()" class="admin-secondary-btn" style="margin-left: auto;">⚙️ Backend</button>
   </nav>
 
   <div *ngIf="usuarios !== null; else cargando" class="app-container">

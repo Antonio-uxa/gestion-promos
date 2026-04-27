@@ -95,21 +95,39 @@ interface StatusPaqueteBasico {
   styleUrls: []
 })
 export class AppComponent implements OnInit {
-  baseUrl = ((): string => {
-    // Permite sobre-escribir desde localStorage (ej: en despliegues) o construir
-    // una URL por defecto usando el host actual y el puerto 5000.
+  baseUrl: string = '';
+  urlBackendConfigurable: string = '';
+
+  private obtenerBaseUrl(): string {
     try {
       const stored = localStorage.getItem('apiBase') || '';
       if (stored && stored.trim()) {
-        return stored.replace(/\/+$/, '');
+        this.urlBackendConfigurable = stored.replace(/\/+$/, '');
+        return this.urlBackendConfigurable;
       }
-    } catch (e) {
-      // Ignorar si localStorage no está disponible
-    }
+    } catch (e) {}
     const proto = (window.location && window.location.protocol) ? window.location.protocol : 'http:';
     const host = (window.location && window.location.hostname) ? window.location.hostname : '127.0.0.1';
-    return `${proto}//${host}:5000/api`;
-  })();
+    const defaultUrl = `${proto}//${host}:5000/api`;
+    this.urlBackendConfigurable = defaultUrl;
+    return defaultUrl;
+  }
+
+  cambiarUrlBackend() {
+    const nuevaUrl = prompt(
+      'Ingresa la URL del backend (ej: http://192.168.1.100:5000/api):',
+      this.urlBackendConfigurable
+    );
+    if (nuevaUrl && nuevaUrl.trim()) {
+      const urlLimpia = nuevaUrl.trim().replace(/\/+$/, '');
+      localStorage.setItem('apiBase', urlLimpia);
+      this.baseUrl = urlLimpia;
+      this.urlBackendConfigurable = urlLimpia;
+      alert('URL del backend actualizada. Recargando...');
+      location.reload();
+    }
+  }
+
   rolActual: 'admin' | 'analista' | 'dashboard' = 'analista';
   adminModo: 'GESTION' | 'GENERAL' | 'ESPECIFICO' = 'GESTION';
   modoTrabajo: ModoTrabajo = 'ESPECIFICO';
@@ -204,6 +222,8 @@ export class AppComponent implements OnInit {
   }
 
   ngOnInit() { 
+    // Configurar baseUrl antes de hacer llamadas HTTP
+    this.baseUrl = this.obtenerBaseUrl();
     this.cargarDatos();
     setTimeout(() => {
       const rolGuardado = localStorage.getItem('rolActual');
