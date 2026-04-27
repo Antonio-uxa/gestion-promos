@@ -94,7 +94,15 @@ interface StatusPaqueteBasico {
   styleUrls: []
 })
 export class AppComponent implements OnInit {
-  baseUrl = "http://127.0.0.1:5000/api";
+  baseUrl = ((): string => {
+    try {
+      const stored = localStorage.getItem('apiBase') || '';
+      if (stored && stored.trim()) return stored.replace(/\/+$/, '');
+    } catch (e) {}
+    const proto = (window.location && window.location.protocol) ? window.location.protocol : 'http:';
+    const host = (window.location && window.location.hostname) ? window.location.hostname : '127.0.0.1';
+    return `${proto}//${host}:5000/api`;
+  })();
   rolActual: 'admin' | 'analista' | 'dashboard' = 'analista';
   adminModo: 'GESTION' | 'GENERAL' | 'ESPECIFICO' = 'GESTION';
   modoTrabajo: ModoTrabajo = 'ESPECIFICO';
