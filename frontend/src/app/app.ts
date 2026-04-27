@@ -1,4 +1,4 @@
-import { Component, OnInit, ChangeDetectorRef, ViewChild, ElementRef, HostListener } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef, ViewChild, ElementRef, HostListener } from '@angular/core';
 import { HttpClient, HttpClientModule } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
@@ -12,6 +12,7 @@ type TipoPaquete = ModoTrabajo | 'AMBOS';
 interface PaqueteAnalistaGuardado {
   paqueteAnalistaNombre: string;
   tipoPaquete?: TipoPaquete;
+  backendUpdatedAt?: string | null;
   bloqueadoEdicion?: boolean;
   unidadesLoteGeneralFijado?: boolean;
   modoRepartoGeneral?: 'PROMEDIO' | 'MANUAL';
@@ -94,7 +95,7 @@ interface StatusPaqueteBasico {
   templateUrl: './app.html',
   styleUrls: []
 })
-export class AppComponent implements OnInit {
+export class AppComponent implements OnInit, OnDestroy {
   baseUrl: string = '';
   urlBackendConfigurable: string = '';
 
@@ -189,6 +190,8 @@ export class AppComponent implements OnInit {
   statusPorAnalista: StatusFila[] = [];
   statusCargando: boolean = false;
 
+  private sincronizacionPaquetes: any;
+
   appHost = this;
 
   // Autenticación admin
@@ -225,6 +228,7 @@ export class AppComponent implements OnInit {
     // Configurar baseUrl antes de hacer llamadas HTTP
     this.baseUrl = this.obtenerBaseUrl();
     this.cargarDatos();
+    this.iniciarSincronizacionPaquetes();
     setTimeout(() => {
       const rolGuardado = localStorage.getItem('rolActual');
       this.adminToken = sessionStorage.getItem('adminToken');
@@ -332,6 +336,13 @@ export class AppComponent implements OnInit {
     });
   }
 
+  ngOnDestroy() {
+    if (this.sincronizacionPaquetes) {
+      clearInterval(this.sincronizacionPaquetes);
+      this.sincronizacionPaquetes = null;
+    }
+  }
+
   private cargarPaquetesDelBackend() {
     this.http.get(`${this.baseUrl}/paquetes-analista`).subscribe({
       next: (res: any) => {
@@ -339,12 +350,14 @@ export class AppComponent implements OnInit {
           const paquetesGuardados = this.obtenerPaquetesGuardados();
           res.paquetes.forEach((p: any) => {
             const nombre = p.nombre || '';
-            if (nombre && !paquetesGuardados[nombre]) {
-              // Guardar paquete del backend localmente
+            if (nombre) {
+              // El backend prevalece para que otros equipos vean la versión compartida
               paquetesGuardados[nombre] = {
                 paqueteAnalistaNombre: nombre,
                 tipoPaquete: (p.tipo_paquete || 'ESPECIFICO') as any,
-                ...p.configuracion
+                backendUpdatedAt: p.updated_at || null,
+                ...p.configuracion,
+                bloqueadoEdicion: false
               };
             }
           });
@@ -394,6 +407,7 @@ export class AppComponent implements OnInit {
         ...paquete,
         paqueteAnalistaNombre: paquete.paqueteAnalistaNombre || key,
         tipoPaquete: tipo,
+        backendUpdatedAt: paquete.backendUpdatedAt || null,
         bloqueadoEdicion: Boolean(paquete.bloqueadoEdicion),
         unidadesLoteGeneralFijado: Boolean(paquete.unidadesLoteGeneralFijado ?? false),
         modoRepartoGeneral: repartoGuardado,
@@ -443,6 +457,16 @@ export class AppComponent implements OnInit {
 
   private refrescarPaquetesGuardados() {
     this.paquetesGuardados = Object.keys(this.obtenerPaquetesGuardados()).sort((a, b) => a.localeCompare(b));
+  }
+
+  private iniciarSincronizacionPaquetes() {
+    if (this.sincronizacionPaquetes) {
+      clearInterval(this.sincronizacionPaquetes);
+    }
+
+    this.sincronizacionPaquetes = setInterval(() => {
+      this.cargarPaquetesDelBackend();
+    }, 8000);
   }
 
   private capturarPaqueteActual(): PaqueteAnalistaGuardado | null {
@@ -1098,11 +1122,6 @@ export class AppComponent implements OnInit {
     if (!paquete) return;
 
     this.guardarPaqueteEnLocal(paquete.paqueteAnalistaNombre, paquete);
-  }
-
-  private guardarPaqueteEnBackend() {
-    const paquete = this.capturarPaqueteActual();
-    if (!paquete) return;
 
     const datosBackend = {
       nombre: paquete.paqueteAnalistaNombre,
@@ -1114,27 +1133,79 @@ export class AppComponent implements OnInit {
       }
     };
 
+    datosBackend.configuracion.bloqueadoEdicion = false;
+
     this.http.post(`${this.baseUrl}/paquetes-analista`, datosBackend).subscribe({
       next: () => {
+        console.log('Paquete sincronizado con el backend');
+      },
+      error: (err: any) => {
+        console.warn('No se pudo sincronizar el paquete con backend:', err);
+      }
+    });
+  }
+
+  private guardarPaqueteEnBackend() {
+    const paquete = this.capturarPaqueteActual();
+    if (!paquete) return;
+    const paqueteLocal = this.obtenerPaquetesGuardados()[paquete.paqueteAnalistaNombre];
+
+    const datosBackend = {
+      nombre: paquete.paqueteAnalistaNombre,
+      tipo_paquete: paquete.tipoPaquete || 'ESPECIFICO',
+      expected_updated_at: paqueteLocal?.backendUpdatedAt || null,
+      configuracion: {
+        ...paquete,
+        paqueteAnalistaNombre: undefined,
+        tipoPaquete: undefined
+      }
+    };
+
+    this.http.post(`${this.baseUrl}/paquetes-analista`, datosBackend).subscribe({
+      next: (res: any) => {
+        const updatedAt = res?.updated_at || null;
+        if (updatedAt) {
+          const paquetes = this.obtenerPaquetesGuardados();
+          const nombre = paquete.paqueteAnalistaNombre;
+          if (paquetes[nombre]) {
+            paquetes[nombre].backendUpdatedAt = updatedAt;
+            this.guardarPaquetesGuardados(paquetes);
+          }
+        }
         console.log('Paquete guardado en el backend');
       },
       error: (err: any) => {
+        if (err?.status === 409 && err?.error?.paquete) {
+          alert(err?.error?.message || 'Otro usuario modificó este paquete. Se cargará la versión más reciente.');
+          const paqueteServidor = this.convertirPaqueteBackendAPaqueteGuardado(err.error.paquete);
+          const paquetes = this.obtenerPaquetesGuardados();
+          paquetes[paqueteServidor.paqueteAnalistaNombre] = paqueteServidor;
+          this.guardarPaquetesGuardados(paquetes);
+          if (this.paqueteAnalistaNombre === paqueteServidor.paqueteAnalistaNombre) {
+            this.aplicarPaqueteGuardado(paqueteServidor.paqueteAnalistaNombre, paqueteServidor, paqueteServidor.modoTrabajo);
+            this.paqueteBloqueadoEdicion = false;
+            this.cdr.detectChanges();
+          }
+          return;
+        }
         console.warn('No se pudo guardar paquete en backend:', err);
       }
     });
   }
 
-  abrirPaqueteGuardado(nombre: string, modoPreferido?: ModoTrabajo) {
-    if (this.paqueteAnalistaNombre.trim()) {
-      this.guardarPaqueteActual();
-    }
+  private convertirPaqueteBackendAPaqueteGuardado(paquete: any): PaqueteAnalistaGuardado {
+    const nombre = (paquete?.nombre || '').trim();
+    const configuracion = paquete?.configuracion || {};
+    return {
+      paqueteAnalistaNombre: nombre,
+      tipoPaquete: ((paquete?.tipo_paquete || configuracion?.tipoPaquete || 'ESPECIFICO') as TipoPaquete),
+      backendUpdatedAt: paquete?.updated_at || null,
+      bloqueadoEdicion: false,
+      ...(configuracion || {})
+    };
+  }
 
-    this.limpiarIntervaloCronometro();
-    this.detenerRefrescoUsuarios();
-
-    const paquete = this.obtenerPaquetesGuardados()[nombre];
-    if (!paquete) return;
-
+  private aplicarPaqueteGuardado(nombre: string, paquete: PaqueteAnalistaGuardado, modoPreferido?: ModoTrabajo) {
     const tipoRaw = ((paquete.tipoPaquete || 'ESPECIFICO') as string).toUpperCase();
     const tipo: TipoPaquete = tipoRaw === 'GENERAL' || tipoRaw === 'AMBOS' ? (tipoRaw as TipoPaquete) : 'ESPECIFICO';
     const modoRaw = ((paquete.modoTrabajo || '') as string).toUpperCase();
@@ -1155,10 +1226,23 @@ export class AppComponent implements OnInit {
     this.unidadesPorUsuarioGeneral = { ...(paquete.unidadesPorUsuarioGeneral || {}) };
     this.unidadesLoteGeneralFijado = Boolean(paquete.unidadesLoteGeneralFijado ?? (this.unidadesLoteGeneral > 0));
     this.registroCantidades = JSON.parse(JSON.stringify(paquete.registroCantidades || this.crearMatrizVacia()));
-    this.paqueteBloqueadoEdicion = Boolean(paquete.bloqueadoEdicion);
+    this.paqueteBloqueadoEdicion = false;
     this.paqueteAnalistaActivo = true;
     this.cargarSesionPaquete(nombre, this.modoTrabajo, paquete);
     this.cargarSesionesUsuarios(nombre, this.modoTrabajo);
+  }
+
+  abrirPaqueteGuardado(nombre: string, modoPreferido?: ModoTrabajo) {
+    if (this.paqueteAnalistaNombre.trim()) {
+      this.guardarPaqueteActual();
+    }
+
+    this.limpiarIntervaloCronometro();
+    this.detenerRefrescoUsuarios();
+
+    const paquete = this.obtenerPaquetesGuardados()[nombre];
+    if (!paquete) return;
+    this.aplicarPaqueteGuardado(nombre, paquete, modoPreferido);
     this.cdr.detectChanges();
     localStorage.setItem('paqueteAnalistaActivo', nombre);
   }

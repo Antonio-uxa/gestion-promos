@@ -101,6 +101,17 @@ class PaqueteAnalista(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+def _serializar_paquete_analista(paquete):
+    if not paquete:
+        return None
+    return {
+        'nombre': paquete.nombre,
+        'tipo_paquete': paquete.tipo_paquete,
+        'configuracion': json.loads(paquete.configuracion or '{}'),
+        'created_at': paquete.created_at.isoformat() + 'Z' if paquete.created_at else None,
+        'updated_at': paquete.updated_at.isoformat() + 'Z' if paquete.updated_at else None,
+    }
+
 def _serializar_sesion(sesion):
     if not sesion:
         return None
@@ -248,12 +259,7 @@ def obtener_paquetes_analista():
     paquetes = PaqueteAnalista.query.all()
     resultado = []
     for p in paquetes:
-        resultado.append({
-            "nombre": p.nombre,
-            "tipo_paquete": p.tipo_paquete,
-            "configuracion": json.loads(p.configuracion),
-            "created_at": p.created_at.isoformat() + 'Z' if p.created_at else None
-        })
+        resultado.append(_serializar_paquete_analista(p))
     return jsonify({"status": "ok", "paquetes": resultado})
 
 @app.route('/api/paquetes-analista', methods=['POST'])
@@ -262,12 +268,20 @@ def guardar_paquete_analista():
     nombre = (data.get('nombre') or '').strip()
     tipo_paquete = (data.get('tipo_paquete') or 'ESPECIFICO').upper()
     configuracion = data.get('configuracion', {})
+    expected_updated_at = (data.get('expected_updated_at') or '').strip()
     
     if not nombre:
         return jsonify({"status": "error", "message": "El nombre del paquete es obligatorio"}), 400
     
     paquete_existente = PaqueteAnalista.query.filter_by(nombre=nombre).first()
     if paquete_existente:
+        actual_updated_at = paquete_existente.updated_at.isoformat() + 'Z' if paquete_existente.updated_at else ''
+        if expected_updated_at and actual_updated_at and expected_updated_at != actual_updated_at:
+            return jsonify({
+                "status": "conflict",
+                "message": "Otro usuario guardó cambios en este paquete. Se cargó la versión más reciente.",
+                "paquete": _serializar_paquete_analista(paquete_existente)
+            }), 409
         # Actualizar si existe
         paquete_existente.tipo_paquete = tipo_paquete
         paquete_existente.configuracion = json.dumps(configuracion)
@@ -282,7 +296,13 @@ def guardar_paquete_analista():
         db.session.add(paquete_nuevo)
     
     db.session.commit()
-    return jsonify({"status": "ok", "nombre": nombre})
+    paquete_guardado = PaqueteAnalista.query.filter_by(nombre=nombre).first()
+    return jsonify({
+        "status": "ok",
+        "nombre": nombre,
+        "updated_at": paquete_guardado.updated_at.isoformat() + 'Z' if paquete_guardado and paquete_guardado.updated_at else None,
+        "paquete": _serializar_paquete_analista(paquete_guardado)
+    })
 
 @app.route('/api/paquetes-analista/<string:nombre>', methods=['DELETE'])
 def eliminar_paquete_analista(nombre):
