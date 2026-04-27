@@ -93,6 +93,14 @@ class SesionUsuarioPaquete(db.Model):
     finalizado = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+class PaqueteAnalista(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(120), nullable=False, unique=True)
+    tipo_paquete = db.Column(db.String(20), nullable=False, default='ESPECIFICO')
+    configuracion = db.Column(db.Text, nullable=False, default='{}')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 def _serializar_sesion(sesion):
     if not sesion:
         return None
@@ -234,6 +242,61 @@ def get_data():
         "usuarios": res_u, 
         "promos": [{"id": p.id, "nombre": p.nombre, "categoria": p.categoria} for p in promos]
     })
+
+@app.route('/api/paquetes-analista', methods=['GET'])
+def obtener_paquetes_analista():
+    paquetes = PaqueteAnalista.query.all()
+    resultado = []
+    for p in paquetes:
+        resultado.append({
+            "nombre": p.nombre,
+            "tipo_paquete": p.tipo_paquete,
+            "configuracion": json.loads(p.configuracion),
+            "created_at": p.created_at.isoformat() + 'Z' if p.created_at else None
+        })
+    return jsonify({"status": "ok", "paquetes": resultado})
+
+@app.route('/api/paquetes-analista', methods=['POST'])
+def guardar_paquete_analista():
+    data = request.json or {}
+    nombre = (data.get('nombre') or '').strip()
+    tipo_paquete = (data.get('tipo_paquete') or 'ESPECIFICO').upper()
+    configuracion = data.get('configuracion', {})
+    
+    if not nombre:
+        return jsonify({"status": "error", "message": "El nombre del paquete es obligatorio"}), 400
+    
+    paquete_existente = PaqueteAnalista.query.filter_by(nombre=nombre).first()
+    if paquete_existente:
+        # Actualizar si existe
+        paquete_existente.tipo_paquete = tipo_paquete
+        paquete_existente.configuracion = json.dumps(configuracion)
+        paquete_existente.updated_at = datetime.utcnow()
+    else:
+        # Crear si no existe
+        paquete_nuevo = PaqueteAnalista(
+            nombre=nombre,
+            tipo_paquete=tipo_paquete,
+            configuracion=json.dumps(configuracion)
+        )
+        db.session.add(paquete_nuevo)
+    
+    db.session.commit()
+    return jsonify({"status": "ok", "nombre": nombre})
+
+@app.route('/api/paquetes-analista/<string:nombre>', methods=['DELETE'])
+def eliminar_paquete_analista(nombre):
+    nombre = (nombre or '').strip()
+    if not nombre:
+        return jsonify({"status": "error", "message": "Nombre de paquete inválido"}), 400
+    
+    paquete = PaqueteAnalista.query.filter_by(nombre=nombre).first()
+    if not paquete:
+        return jsonify({"status": "error", "message": "Paquete no encontrado"}), 404
+    
+    db.session.delete(paquete)
+    db.session.commit()
+    return jsonify({"status": "ok", "nombre": nombre})
 
 @app.route('/api/usuarios', methods=['POST'])
 @_require_admin

@@ -3,7 +3,6 @@ import { HttpClient, HttpClientModule } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { Chart, registerables } from 'chart.js';
-import { AdminPanelComponent } from './admin-panel.component';
 Chart.register(...registerables);
 
 type ModoTrabajo = 'GENERAL' | 'ESPECIFICO';
@@ -90,7 +89,7 @@ interface StatusPaqueteBasico {
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [CommonModule, HttpClientModule, FormsModule, AdminPanelComponent],
+  imports: [CommonModule, HttpClientModule, FormsModule],
   templateUrl: './app.html',
   styleUrls: []
 })
@@ -188,8 +187,6 @@ export class AppComponent implements OnInit {
   statusPorPaquete: StatusFila[] = [];
   statusPorAnalista: StatusFila[] = [];
   statusCargando: boolean = false;
-
-  appHost = this;
 
   // Autenticación admin
   adminToken: string | null = null;
@@ -319,10 +316,9 @@ export class AppComponent implements OnInit {
         this.refrescarPaquetesGuardados();
         this.restaurarPaqueteActivo();
         this.cdr.detectChanges();
-      }
-      ,
+      },
       error: (err: any) => {
-        console.error('Error al cargar datos desde backend:', err);
+        console.error('Error al cargar datos desde backend (backup):', err);
         alert('No se pudo conectar al backend. Verifica que el servidor esté corriendo y la URL de la API.');
         this.usuarios = [];
         this.configuracionPromos = [];
@@ -340,7 +336,6 @@ export class AppComponent implements OnInit {
           res.paquetes.forEach((p: any) => {
             const nombre = p.nombre || '';
             if (nombre && !paquetesGuardados[nombre]) {
-              // Guardar paquete del backend localmente
               paquetesGuardados[nombre] = {
                 paqueteAnalistaNombre: nombre,
                 tipoPaquete: (p.tipo_paquete || 'ESPECIFICO') as any,
@@ -395,7 +390,7 @@ export class AppComponent implements OnInit {
         paqueteAnalistaNombre: paquete.paqueteAnalistaNombre || key,
         tipoPaquete: tipo,
         bloqueadoEdicion: Boolean(paquete.bloqueadoEdicion),
-        unidadesLoteGeneralFijado: Boolean(paquete.unidadesLoteGeneralFijado ?? false),
+        unidadesLoteGeneralFijado: Boolean(paquete.unidadesLoteGeneralFijado ?? (Number(paquete.unidadesLoteGeneral || 0) > 0)),
         modoRepartoGeneral: repartoGuardado,
         unidadesPorUsuarioGeneral: asignaciones,
         modoTrabajo: modoGuardado,
@@ -1339,13 +1334,6 @@ export class AppComponent implements OnInit {
     return this.unidadesLoteGeneralFijado && Number(this.unidadesLoteGeneral || 0) > 0;
   }
 
-  toggleTotalPromocionesGeneralFijado() {
-    if (this.paqueteBloqueadoEdicion) return;
-    if (!Number(this.unidadesLoteGeneral || 0)) return;
-    this.unidadesLoteGeneralFijado = !this.unidadesLoteGeneralFijado;
-    this.guardarPaqueteActual();
-  }
-
   get pasoGeneralParticipantesHabilitado(): boolean {
     return Number(this.unidadesLoteGeneral || 0) > 0;
   }
@@ -1386,6 +1374,10 @@ export class AppComponent implements OnInit {
     if (!Number.isFinite(total) || total < 0) total = 0;
     total = Math.floor(total);
     this.unidadesLoteGeneral = total;
+
+    if (total > 0 && !this.unidadesLoteGeneralFijado) {
+      this.unidadesLoteGeneralFijado = true;
+    }
 
     if (this.modoRepartoGeneral === 'PROMEDIO') {
       this.recalcularRepartoPromedio();
@@ -2087,7 +2079,7 @@ export class AppComponent implements OnInit {
 
   renderGrafico() {
     if (!this.canvas || !this.canvas.nativeElement) {
-      console.warn('Canvas para gráfico no disponible. Omite renderGrafico.');
+      console.warn('Canvas para gráfico no disponible (backup). Omite renderGrafico.');
       return;
     }
     if (this.chart) this.chart.destroy();
