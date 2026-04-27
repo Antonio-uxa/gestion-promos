@@ -1098,8 +1098,12 @@ export class AppComponent implements OnInit {
     if (!paquete) return;
 
     this.guardarPaqueteEnLocal(paquete.paqueteAnalistaNombre, paquete);
-    
-    // Guardar también en el backend para compartir con otros usuarios
+  }
+
+  private guardarPaqueteEnBackend() {
+    const paquete = this.capturarPaqueteActual();
+    if (!paquete) return;
+
     const datosBackend = {
       nombre: paquete.paqueteAnalistaNombre,
       tipo_paquete: paquete.tipoPaquete || 'ESPECIFICO',
@@ -1109,6 +1113,7 @@ export class AppComponent implements OnInit {
         tipoPaquete: undefined
       }
     };
+
     this.http.post(`${this.baseUrl}/paquetes-analista`, datosBackend).subscribe({
       next: () => {
         console.log('Paquete guardado en el backend');
@@ -1638,6 +1643,7 @@ export class AppComponent implements OnInit {
     this.http.post(`${this.baseUrl}/guardar-reporte-plural`, data).subscribe((res: any) => {
       alert(`Guardado con éxito. Rendimiento Grupal: ${res.rendimiento}%`);
       this.bloquearEdicionPaqueteActual();
+      this.guardarPaqueteEnBackend();
     });
   }
 
@@ -1672,6 +1678,7 @@ export class AppComponent implements OnInit {
     }).subscribe(() => {
       alert('Paquete específico guardado correctamente.');
       this.bloquearEdicionPaqueteActual();
+      this.guardarPaqueteEnBackend();
     });
   }
 
