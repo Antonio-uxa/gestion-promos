@@ -95,7 +95,7 @@ interface StatusPaqueteBasico {
   styleUrls: []
 })
 export class AppComponent implements OnInit {
-  baseUrl = "http://127.0.0.1:5000/api";
+  baseUrl = "http://127.19.72.190:5000/api";
   rolActual: 'admin' | 'analista' | 'dashboard' = 'analista';
   adminModo: 'GESTION' | 'GENERAL' | 'ESPECIFICO' = 'GESTION';
   modoTrabajo: ModoTrabajo = 'ESPECIFICO';
