@@ -298,6 +298,16 @@ export class AppComponent implements OnInit {
         this.restaurarPaqueteActivo();
         this.cdr.detectChanges();
       }
+      ,
+      error: (err: any) => {
+        console.error('Error al cargar datos desde backend:', err);
+        alert('No se pudo conectar al backend. Verifica que el servidor esté corriendo y la URL de la API.');
+        // Evitar que otras funciones intenten usar datos indefinidos
+        this.usuarios = [];
+        this.configuracionPromos = [];
+        this.registroCantidades = {};
+        this.cdr.detectChanges();
+      }
     });
   }
 
@@ -2011,12 +2021,18 @@ export class AppComponent implements OnInit {
   }
 
   renderGrafico() {
+    if (!this.canvas || !this.canvas.nativeElement) {
+      console.warn('Canvas para gráfico no disponible. Omite renderGrafico.');
+      return;
+    }
     if (this.chart) this.chart.destroy();
+    const labels = (this.usuarios || []).map(u => u.nombre || '');
+    const data = (this.usuarios || []).map(u => this.calcularTiempoUsuario(u));
     this.chart = new Chart(this.canvas.nativeElement, {
       type: 'bar',
       data: {
-        labels: this.usuarios?.map(u => u.nombre),
-        datasets: [{ label: 'Minutos Totales', data: this.usuarios?.map(u => this.calcularTiempoUsuario(u)), backgroundColor: '#3498db' }]
+        labels,
+        datasets: [{ label: 'Minutos Totales', data, backgroundColor: '#3498db' }]
       }
     });
   }

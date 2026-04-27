@@ -102,6 +102,11 @@
           </div>
         </div>
 
+        <!-- Gráfico resumen -->
+        <div class="status-chart" *ngIf="rolActual === 'dashboard'">
+          <canvas #myChart width="700" height="280"></canvas>
+        </div>
+
         <div class="status-table-wrap" *ngIf="statusTipoEstadistica === 'TODO' && statusPorPaquete.length">
           <h3>Por Paquete</h3>
           <table class="admin-table">
