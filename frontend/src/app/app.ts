@@ -1851,7 +1851,6 @@ export class AppComponent implements OnInit, OnDestroy {
     this.http.get(`${this.baseUrl}/status/opciones`).subscribe({
       next: (res: any) => {
         const opcionesBackend = Array.isArray(res?.paquetes) ? res.paquetes : [];
-        const paquetesLocales = this.obtenerPaquetesGuardados();
         const mapa = new Map<string, StatusPaqueteOpcion>();
 
         opcionesBackend.forEach((p: any) => {
@@ -1862,16 +1861,6 @@ export class AppComponent implements OnInit, OnDestroy {
               estado_paquete: p.estado_paquete || 'FINALIZADO'
             });
           }
-        });
-
-        Object.values(paquetesLocales).forEach((paquete) => {
-          const nombre = paquete.paqueteAnalistaNombre;
-          if (!nombre) return;
-          mapa.set(nombre, {
-            nombre,
-            fecha_creacion: paquete.sesionInicioIso || paquete.sesionFinIso || mapa.get(nombre)?.fecha_creacion || null,
-            estado_paquete: this.estadoPaqueteDesdeGuardado(paquete)
-          });
         });
 
         this.statusOpcionesPaquetes = Array.from(mapa.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
@@ -2051,34 +2040,6 @@ export class AppComponent implements OnInit, OnDestroy {
         filasBackend.forEach((fila: StatusFila) => {
           const clave = `${fila.nombre_paquete || ''}__${fila.modo || ''}`;
           mapaFilas.set(clave, fila);
-        });
-
-        Object.values(this.obtenerPaquetesGuardados()).forEach((paquete) => {
-          const nombre = paquete.paqueteAnalistaNombre;
-          if (!nombre) return;
-          const modo = paquete.modoTrabajo || this.modoTrabajo;
-          const clave = `${nombre}__${modo}`;
-          const existente = mapaFilas.get(clave);
-          const estado = this.estadoPaqueteDesdeGuardado(paquete);
-
-          if (existente) {
-            existente.estado_paquete = estado;
-            existente.fecha_creacion = existente.fecha_creacion || paquete.sesionInicioIso || paquete.sesionFinIso || null;
-          } else {
-            mapaFilas.set(clave, {
-              nombre_paquete: nombre,
-              modo,
-              fecha_creacion: paquete.sesionInicioIso || paquete.sesionFinIso || null,
-              fecha_ultima: paquete.sesionFinIso || paquete.sesionInicioIso || null,
-              estado_paquete: estado,
-              registros: 0,
-              meta_total: 0,
-              real_total: 0,
-              desviacion_total: 0,
-              rendimiento: 0,
-              semaforo: estado === 'ACTIVO' ? 'VERDE' : (estado === 'EN PROCESO' ? 'AMARILLO' : 'ROJO')
-            });
-          }
         });
 
         this.statusPorPaquete = Array.from(mapaFilas.values());

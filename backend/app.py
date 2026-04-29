@@ -216,6 +216,60 @@ def _obtener_alias_paquete(nombre_base):
 
     return list(nombres)
 
+def _modos_de_paquete(paquete):
+    tipo = (getattr(paquete, 'tipo_paquete', '') or '').upper()
+    if tipo == 'AMBOS':
+        return ['GENERAL', 'ESPECIFICO']
+    if tipo in ['GENERAL', 'ESPECIFICO']:
+        return [tipo]
+    return ['ESPECIFICO']
+
+def _estado_paquete_modo(nombre_paquete, modo):
+    modo = (modo or 'ESPECIFICO').upper()
+    nombre = (nombre_paquete or '').strip()
+    if not nombre:
+        return 'SIN ESTADO'
+
+    if modo == 'GENERAL':
+        sesion_activa = SesionPaquete.query.filter_by(paquete_nombre=nombre, modo=modo, activo=True).order_by(SesionPaquete.id.desc()).first()
+        if sesion_activa:
+            return 'ACTIVO'
+
+        ultima = SesionPaquete.query.filter_by(paquete_nombre=nombre, modo=modo).order_by(SesionPaquete.id.desc()).first()
+        if ultima:
+            return 'FINALIZADO' if ultima.ended_at else 'EN PROCESO'
+
+        if Reporte.query.filter_by(nombre_paquete=nombre, modo=modo).first():
+            return 'EN PROCESO'
+        return 'SIN ESTADO'
+
+    sesiones = SesionUsuarioPaquete.query.filter_by(paquete_nombre=nombre, modo=modo).all()
+    if any(s.activo for s in sesiones):
+        return 'ACTIVO'
+    if sesiones:
+        if all(bool(s.finalizado) for s in sesiones):
+            return 'FINALIZADO'
+        if any(s.ended_at for s in sesiones):
+            return 'EN PROCESO'
+
+    if Reporte.query.filter_by(nombre_paquete=nombre, modo=modo).first():
+        return 'EN PROCESO'
+    return 'SIN ESTADO'
+
+def _estado_paquete_global(paquete):
+    estados = [_estado_paquete_modo(paquete.nombre, modo) for modo in _modos_de_paquete(paquete)]
+    if not estados:
+        return 'SIN ESTADO'
+    if 'ACTIVO' in estados:
+        return 'ACTIVO'
+    if 'EN PROCESO' in estados:
+        return 'EN PROCESO'
+    if all(estado == 'FINALIZADO' for estado in estados):
+        return 'FINALIZADO'
+    if any(estado != 'SIN ESTADO' for estado in estados):
+        return 'EN PROCESO'
+    return 'SIN ESTADO'
+
 # --- RUTAS API ---
 
 @app.route('/api/admin/login', methods=['POST'])
@@ -578,22 +632,19 @@ def eliminar_paquete(nombre_paquete):
 
 @app.route('/api/status/opciones', methods=['GET'])
 def status_opciones():
-    paquetes = db.session.query(
-        Reporte.nombre_paquete,
-        func.min(Reporte.fecha).label('fecha_creacion')
-    ).group_by(Reporte.nombre_paquete).order_by(Reporte.nombre_paquete.asc()).all()
-    usuarios = Usuario.query.order_by(Usuario.nombre.asc()).all()
+    paquetes = PaqueteAnalista.query.order_by(PaqueteAnalista.nombre.asc()).all()
     return jsonify({
         "status": "ok",
         "paquetes": [
             {
-                "nombre": p.nombre_paquete,
-                "fecha_creacion": p.fecha_creacion.isoformat() + 'Z' if p.fecha_creacion else None
+                "nombre": p.nombre,
+                "fecha_creacion": p.created_at.isoformat() + 'Z' if p.created_at else None,
+                "estado_paquete": _estado_paquete_global(p)
             }
-            for p in paquetes if p.nombre_paquete
+            for p in paquetes if p.nombre
         ],
         "modos": ["ALL", "GENERAL", "ESPECIFICO"],
-        "usuarios": [{"id": u.id, "nombre": u.nombre} for u in usuarios]
+        "usuarios": [{"id": u.id, "nombre": u.nombre} for u in Usuario.query.order_by(Usuario.nombre.asc()).all()]
     })
 
 @app.route('/api/status/resumen', methods=['GET'])
@@ -642,6 +693,7 @@ def status_resumen():
         query = query.filter(Reporte.fecha < fecha_hasta)
 
     reportes = query.order_by(Reporte.fecha.desc()).all()
+    paquetes_base = PaqueteAnalista.query.all()
 
     usuarios = Usuario.query.all()
     mapa_usuarios = {u.id: u.nombre for u in usuarios}
@@ -686,6 +738,33 @@ def status_resumen():
         por_analista_map[aid]["meta_total"] += float(r.tiempo_meta or 0)
         por_analista_map[aid]["real_total"] += float(r.tiempo_real or 0)
 
+    for paquete in paquetes_base:
+        if paquetes_param and paquetes_param.upper() != 'ALL':
+            paquetes_filtrados = [p.strip() for p in paquetes_param.split(',') if p.strip()]
+            if paquete.nombre not in paquetes_filtrados:
+                continue
+
+        for modo in _modos_de_paquete(paquete):
+            if modo_param in ['GENERAL', 'ESPECIFICO'] and modo_param != modo:
+                continue
+
+            clave_paquete = f"{paquete.nombre}__{modo}"
+            if clave_paquete not in por_paquete_map:
+                por_paquete_map[clave_paquete] = {
+                    "nombre_paquete": paquete.nombre,
+                    "modo": modo,
+                    "registros": 0,
+                    "meta_total": 0.0,
+                    "real_total": 0.0,
+                    "fecha_creacion": paquete.created_at,
+                    "fecha_ultima": paquete.updated_at,
+                    "estado_paquete": _estado_paquete_modo(paquete.nombre, modo)
+                }
+            else:
+                por_paquete_map[clave_paquete]["estado_paquete"] = _estado_paquete_modo(paquete.nombre, modo)
+                por_paquete_map[clave_paquete]["fecha_creacion"] = por_paquete_map[clave_paquete]["fecha_creacion"] or paquete.created_at
+                por_paquete_map[clave_paquete]["fecha_ultima"] = por_paquete_map[clave_paquete]["fecha_ultima"] or paquete.updated_at
+
     por_paquete = []
     for _, item in por_paquete_map.items():
         rendimiento = _calcular_rendimiento(item["meta_total"], item["real_total"])
@@ -696,6 +775,8 @@ def status_resumen():
         item["real_total"] = round(item["real_total"], 2)
         item["fecha_creacion"] = item["fecha_creacion"].isoformat() + 'Z' if item["fecha_creacion"] else None
         item["fecha_ultima"] = item["fecha_ultima"].isoformat() + 'Z' if item["fecha_ultima"] else None
+        if not item.get("estado_paquete"):
+            item["estado_paquete"] = _estado_paquete_modo(item["nombre_paquete"], item["modo"])
         por_paquete.append(item) 
 
     por_paquete.sort(key=lambda x: x["real_total"], reverse=True)
