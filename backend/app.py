@@ -13,7 +13,9 @@ app = Flask(__name__)
 CORS(app)
 
 # Configuración de la Base de Datos
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///gestion_productividad_v1.db'
+_db_path = os.path.join(os.path.dirname(__file__), 'instance', 'gestion_productividad_v1.db')
+os.makedirs(os.path.dirname(_db_path), exist_ok=True)
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{_db_path}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
@@ -303,6 +305,62 @@ def guardar_paquete_analista():
         "updated_at": paquete_guardado.updated_at.isoformat() + 'Z' if paquete_guardado and paquete_guardado.updated_at else None,
         "paquete": _serializar_paquete_analista(paquete_guardado)
     })
+
+@app.route('/api/paquetes-analista/<string:nombre>', methods=['PATCH'])
+def actualizar_paquete_analista(nombre):
+    nombre_original = (nombre or '').strip()
+    data = request.json or {}
+    nuevo_nombre = (data.get('nombre') or nombre_original).strip()
+    tipo_paquete = (data.get('tipo_paquete') or 'ESPECIFICO').upper()
+    configuracion = data.get('configuracion', {})
+    expected_updated_at = (data.get('expected_updated_at') or '').strip()
+
+    if not nombre_original:
+        return jsonify({"status": "error", "message": "Nombre de paquete inválido"}), 400
+    if not nuevo_nombre:
+        return jsonify({"status": "error", "message": "El nombre del paquete es obligatorio"}), 400
+
+    paquete_existente = PaqueteAnalista.query.filter_by(nombre=nombre_original).first()
+    if not paquete_existente:
+        return jsonify({"status": "error", "message": "Paquete no encontrado"}), 404
+
+    if nuevo_nombre != nombre_original:
+        conflicto = PaqueteAnalista.query.filter_by(nombre=nuevo_nombre).first()
+        if conflicto:
+            return jsonify({"status": "error", "message": "Ya existe un paquete con ese nombre"}), 409
+
+    actual_updated_at = paquete_existente.updated_at.isoformat() + 'Z' if paquete_existente.updated_at else ''
+    if expected_updated_at and actual_updated_at and expected_updated_at != actual_updated_at:
+        return jsonify({
+            "status": "conflict",
+            "message": "Otro usuario modificó este paquete. Se cargó la versión más reciente.",
+            "paquete": _serializar_paquete_analista(paquete_existente)
+        }), 409
+
+    try:
+        reportes_actualizados = Reporte.query.filter(Reporte.nombre_paquete == nombre_original).update({Reporte.nombre_paquete: nuevo_nombre}, synchronize_session=False)
+        sesiones_paquete_actualizadas = SesionPaquete.query.filter(SesionPaquete.paquete_nombre == nombre_original).update({SesionPaquete.paquete_nombre: nuevo_nombre}, synchronize_session=False)
+        sesiones_usuario_actualizadas = SesionUsuarioPaquete.query.filter(SesionUsuarioPaquete.paquete_nombre == nombre_original).update({SesionUsuarioPaquete.paquete_nombre: nuevo_nombre}, synchronize_session=False)
+
+        paquete_existente.nombre = nuevo_nombre
+        paquete_existente.tipo_paquete = tipo_paquete
+        paquete_existente.configuracion = json.dumps(configuracion)
+        paquete_existente.updated_at = datetime.utcnow()
+
+        db.session.commit()
+        return jsonify({
+            "status": "ok",
+            "nombre": nuevo_nombre,
+            "nombre_anterior": nombre_original,
+            "updated_at": paquete_existente.updated_at.isoformat() + 'Z' if paquete_existente.updated_at else None,
+            "paquete": _serializar_paquete_analista(paquete_existente),
+            "reportes_actualizados": reportes_actualizados,
+            "sesiones_paquete_actualizadas": sesiones_paquete_actualizadas,
+            "sesiones_usuario_actualizadas": sesiones_usuario_actualizadas
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/api/paquetes-analista/<string:nombre>', methods=['DELETE'])
 def eliminar_paquete_analista(nombre):

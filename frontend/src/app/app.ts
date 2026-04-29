@@ -98,6 +98,7 @@ interface StatusPaqueteBasico {
 export class AppComponent implements OnInit, OnDestroy {
   baseUrl: string = '';
   urlBackendConfigurable: string = '';
+  private paquetesGuardadosBackend: Record<string, PaqueteAnalistaGuardado> = {};
 
   private obtenerBaseUrl(): string {
     try {
@@ -224,6 +225,15 @@ export class AppComponent implements OnInit, OnDestroy {
     }
   }
 
+  @HostListener('window:focus')
+  onWindowFocus() {
+    this.cargarPaquetesDelBackend();
+    if (this.rolActual === 'dashboard') {
+      this.cargarStatusOpciones();
+      this.cargarStatusResumen();
+    }
+  }
+
   ngOnInit() { 
     // Configurar baseUrl antes de hacer llamadas HTTP
     this.baseUrl = this.obtenerBaseUrl();
@@ -347,7 +357,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.http.get(`${this.baseUrl}/paquetes-analista`).subscribe({
       next: (res: any) => {
         if (res?.paquetes && Array.isArray(res.paquetes)) {
-          const paquetesGuardados = this.obtenerPaquetesGuardados();
+          const paquetesGuardados: Record<string, PaqueteAnalistaGuardado> = {};
           res.paquetes.forEach((p: any) => {
             const nombre = p.nombre || '';
             if (nombre) {
@@ -382,9 +392,8 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   private obtenerPaquetesGuardados(): Record<string, PaqueteAnalistaGuardado> {
-    const guardado = localStorage.getItem('paquetesAnalista');
-    const parsed = guardado ? JSON.parse(guardado) : {};
     const normalizados: Record<string, PaqueteAnalistaGuardado> = {};
+    const parsed = this.paquetesGuardadosBackend || {};
 
     Object.keys(parsed || {}).forEach((key) => {
       const paquete = parsed[key] || {};
@@ -422,7 +431,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   private guardarPaquetesGuardados(paquetes: Record<string, PaqueteAnalistaGuardado>) {
-    localStorage.setItem('paquetesAnalista', JSON.stringify(paquetes));
+    this.paquetesGuardadosBackend = JSON.parse(JSON.stringify(paquetes || {}));
     this.paquetesGuardados = Object.keys(paquetes).sort((a, b) => a.localeCompare(b));
   }
 
@@ -466,7 +475,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
     this.sincronizacionPaquetes = setInterval(() => {
       this.cargarPaquetesDelBackend();
-    }, 8000);
+    }, 5000);
   }
 
   private capturarPaqueteActual(): PaqueteAnalistaGuardado | null {
@@ -1319,7 +1328,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
     const tipo = this.paqueteEditandoTipo;
     const modoPrevio: ModoTrabajo = paquetes[original]?.modoTrabajo === 'GENERAL' ? 'GENERAL' : 'ESPECIFICO';
-    const data = {
+    const configuracion = {
       ...paquetes[original],
       paqueteAnalistaNombre: nuevo,
       nombreLote: nuevo,
@@ -1327,26 +1336,48 @@ export class AppComponent implements OnInit, OnDestroy {
       tipoPaquete: tipo,
       modoTrabajo: tipo === 'AMBOS' ? modoPrevio : (tipo as ModoTrabajo)
     };
-    delete paquetes[original];
-    paquetes[nuevo] = data;
-    this.guardarPaquetesGuardados(paquetes);
 
-    if (localStorage.getItem('paqueteAnalistaActivo') === original) {
-      localStorage.setItem('paqueteAnalistaActivo', nuevo);
-    }
+    this.http.patch(`${this.baseUrl}/paquetes-analista/${encodeURIComponent(original)}`, {
+      nombre: nuevo,
+      tipo_paquete: tipo,
+      expected_updated_at: paquetes[original].backendUpdatedAt || null,
+      configuracion
+    }).subscribe({
+      next: (res: any) => {
+        const paqueteServidor = this.convertirPaqueteBackendAPaqueteGuardado(res?.paquete || {
+          nombre: nuevo,
+          tipo_paquete: tipo,
+          configuracion,
+          updated_at: res?.updated_at || null
+        });
 
-    if (this.paqueteAnalistaNombre === original) {
-      this.paqueteAnalistaNombre = nuevo;
-      this.nombreLote = nuevo;
-      this.nombrePaqueteEspecifico = nuevo;
-      this.nuevoPaqueteTipo = tipo;
-      this.modoTrabajo = tipo === 'AMBOS' ? modoPrevio : (tipo as ModoTrabajo);
-      this.cargarSesionPaquete(nuevo, this.modoTrabajo, paquetes[nuevo]);
-      this.cargarSesionesUsuarios(nuevo, this.modoTrabajo);
-      this.guardarPaqueteActual();
-    }
+        const paquetesActualizados = this.obtenerPaquetesGuardados();
+        delete paquetesActualizados[original];
+        paquetesActualizados[nuevo] = paqueteServidor;
+        this.guardarPaquetesGuardados(paquetesActualizados);
 
-    this.cancelarEdicionPaquete();
+        if (localStorage.getItem('paqueteAnalistaActivo') === original) {
+          localStorage.setItem('paqueteAnalistaActivo', nuevo);
+        }
+
+        if (this.paqueteAnalistaNombre === original) {
+          this.paqueteAnalistaNombre = nuevo;
+          this.nombreLote = nuevo;
+          this.nombrePaqueteEspecifico = nuevo;
+          this.nuevoPaqueteTipo = tipo;
+          this.modoTrabajo = tipo === 'AMBOS' ? modoPrevio : (tipo as ModoTrabajo);
+          this.cargarSesionPaquete(nuevo, this.modoTrabajo, paqueteServidor);
+          this.cargarSesionesUsuarios(nuevo, this.modoTrabajo);
+        }
+
+        this.cancelarEdicionPaquete();
+        this.cdr.detectChanges();
+      },
+      error: (err: any) => {
+        if (this.manejarNoAutorizadoAdmin(err)) return;
+        alert(err?.error?.message || 'No se pudo actualizar el paquete en el backend.');
+      }
+    });
   }
 
   eliminarPaqueteAdmin(nombre: string) {
