@@ -1265,6 +1265,37 @@
 	color: #991b1b;
 }
 
+/* Nuevos estilos para tabla Por Paquete mejorada */
+.status-chip-gray {
+	display: inline-block;
+	padding: 6px 12px;
+	border-radius: 8px;
+	font-size: 0.8rem;
+	font-weight: 600;
+	background: #e5e7eb;
+	color: #374151;
+}
+
+.status-row-active {
+	background: rgba(234, 179, 8, 0.05) !important;
+	border-left: 4px solid #eab308;
+}
+
+.status-positive {
+	color: #16a34a;
+	font-weight: 600;
+}
+
+.status-neutral {
+	color: #ea8c55;
+	font-weight: 600;
+}
+
+.status-negative {
+	color: #dc2626;
+	font-weight: 600;
+}
+
 .analista-chip-active {
 	background: #27ae60;
 	color: #fff;

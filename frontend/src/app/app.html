@@ -62,14 +62,14 @@
           <h3>Selecciona un paquete</h3>
           <p>Listado básico. Al seleccionar uno, se despliega el detalle completo debajo.</p>
           <div class="status-paquetes-admin-list">
-            <button type="button" *ngFor="let p of statusPaquetesBasicosVista" class="status-paquete-admin-item" [class.status-paquete-admin-item-active]="statusPaqueteSeleccionado === p.nombre" (click)="seleccionarStatusPaquete(p.nombre)">
+            <button type="button" *ngFor="let p of statusPaquetesBasicosVista; trackBy: trackByPaqueteNombre" class="status-paquete-admin-item" [class.status-paquete-admin-item-active]="statusPaqueteSeleccionado === p.nombre" (click)="seleccionarStatusPaquete(p.nombre)">
               <div class="status-paquete-admin-main">
                 <strong>{{ p.nombre }}</strong>
                 <span class="status-chip-green" *ngIf="p.estado_paquete === 'ACTIVO'">ACTIVO</span>
                 <span class="status-chip-yellow" *ngIf="p.estado_paquete === 'EN PROCESO'">EN PROCESO</span>
                 <span class="status-chip-red" *ngIf="p.estado_paquete === 'FINALIZADO'">FINALIZADO</span>
               </div>
-              <small>Meta: {{ p.meta_total | number:'1.1-2' }} | Real: {{ p.real_total | number:'1.1-2' }} | Rend.: {{ p.rendimiento | number:'1.1-2' }}%</small>
+              <small>Rend.: {{ p.rendimiento | number:'1.1-2' }}%</small>
             </button>
           </div>
         </div>
@@ -81,18 +81,6 @@
             <small [class.status-chip-green]="statusResumenGlobal.semaforo === 'VERDE'" [class.status-chip-yellow]="statusResumenGlobal.semaforo === 'AMARILLO'" [class.status-chip-red]="statusResumenGlobal.semaforo === 'ROJO'">{{ statusResumenGlobal.semaforo }}</small>
           </div>
           <div class="status-kpi-card">
-            <span>Meta Total</span>
-            <strong>{{ statusResumenGlobal.meta_total | number:'1.1-2' }} min</strong>
-          </div>
-          <div class="status-kpi-card">
-            <span>Tiempo Real</span>
-            <strong>{{ statusResumenGlobal.real_total | number:'1.1-2' }} min</strong>
-          </div>
-          <div class="status-kpi-card">
-            <span>Desviación</span>
-            <strong>{{ statusResumenGlobal.desviacion_total | number:'1.1-2' }} min</strong>
-          </div>
-          <div class="status-kpi-card">
             <span>Paquetes</span>
             <strong>{{ statusResumenGlobal.paquetes }}</strong>
           </div>
@@ -102,40 +90,33 @@
           </div>
         </div>
 
-        <!-- Gráfico resumen -->
-        <div class="status-chart" *ngIf="rolActual === 'dashboard'">
-          <canvas #myChart width="700" height="280"></canvas>
-        </div>
-
         <div class="status-table-wrap" *ngIf="statusTipoEstadistica === 'TODO' && statusPorPaquete.length">
           <h3>Por Paquete</h3>
           <table class="admin-table">
             <thead>
               <tr>
-                <th>Paquete</th>
-                <th>Modo</th>
-                <th>Estado</th>
-                <th>Creado</th>
-                <th>Meta</th>
-                <th>Real</th>
-                <th>Rendimiento</th>
-                <th>Semáforo</th>
+                <th style="width: 35%;">Paquete</th>
+                <th style="width: 15%;">Modo</th>
+                <th style="width: 15%;">Estado</th>
+                <th style="width: 15%;">Rendimiento</th>
+                <th style="width: 20%;">Semáforo</th>
               </tr>
             </thead>
             <tbody>
-              <tr *ngFor="let fila of statusPorPaquete">
-                <td>{{ fila.nombre_paquete }}</td>
+              <tr *ngFor="let fila of statusPorPaquete; trackBy: trackByPaqueteModo" [class.status-row-active]="fila.estado_paquete === 'EN PROCESO'">
+                <td><strong>{{ fila.nombre_paquete }}</strong></td>
                 <td>{{ fila.modo }}</td>
-                <td>
+                <td style="font-weight: bold;">
                   <span class="status-chip-green" *ngIf="fila.estado_paquete === 'ACTIVO'">ACTIVO</span>
                   <span class="status-chip-yellow" *ngIf="fila.estado_paquete === 'EN PROCESO'">EN PROCESO</span>
                   <span class="status-chip-red" *ngIf="fila.estado_paquete === 'FINALIZADO'">FINALIZADO</span>
-                  <span *ngIf="!fila.estado_paquete">-</span>
+                  <span class="status-chip-gray" *ngIf="!fila.estado_paquete">SIN INICIAR</span>
                 </td>
-                <td>{{ fila.fecha_creacion ? (fila.fecha_creacion | date:'shortDate') : '-' }}</td>
-                <td>{{ fila.meta_total | number:'1.1-2' }}</td>
-                <td>{{ fila.real_total | number:'1.1-2' }}</td>
-                <td>{{ fila.rendimiento | number:'1.1-2' }}%</td>
+                <td style="text-align: right;">
+                  <span [class.status-positive]="fila.rendimiento >= 90" [class.status-neutral]="fila.rendimiento >= 70 && fila.rendimiento < 90" [class.status-negative]="fila.rendimiento < 70">
+                    {{ fila.rendimiento | number:'1.1-2' }}%
+                  </span>
+                </td>
                 <td>
                   <span [class.status-chip-green]="fila.semaforo === 'VERDE'" [class.status-chip-yellow]="fila.semaforo === 'AMARILLO'" [class.status-chip-red]="fila.semaforo === 'ROJO'">{{ fila.semaforo }}</span>
                 </td>
@@ -150,17 +131,13 @@
             <thead>
               <tr>
                 <th>Analista</th>
-                <th>Meta</th>
-                <th>Real</th>
                 <th>Rendimiento</th>
                 <th>Semáforo</th>
               </tr>
             </thead>
             <tbody>
-              <tr *ngFor="let fila of statusPorAnalistaVista">
+              <tr *ngFor="let fila of statusPorAnalistaVista; trackBy: trackByAnalistaId">
                 <td>{{ fila.nombre }}</td>
-                <td>{{ fila.meta_total | number:'1.1-2' }}</td>
-                <td>{{ fila.real_total | number:'1.1-2' }}</td>
                 <td>{{ fila.rendimiento | number:'1.1-2' }}%</td>
                 <td>
                   <span [class.status-chip-green]="fila.semaforo === 'VERDE'" [class.status-chip-yellow]="fila.semaforo === 'AMARILLO'" [class.status-chip-red]="fila.semaforo === 'ROJO'">{{ fila.semaforo }}</span>
@@ -178,14 +155,12 @@
                 <th>Modo</th>
                 <th>Estado</th>
                 <th>Creado</th>
-                <th>Meta</th>
-                <th>Real</th>
                 <th>Rendimiento</th>
                 <th>Semáforo</th>
               </tr>
             </thead>
             <tbody>
-              <tr *ngFor="let fila of statusFilasPaqueteSeleccionado">
+              <tr *ngFor="let fila of statusFilasPaqueteSeleccionado; trackBy: trackByPaqueteModo">
                 <td>{{ fila.modo }}</td>
                 <td>
                   <span class="status-chip-green" *ngIf="fila.estado_paquete === 'ACTIVO'">ACTIVO</span>
@@ -194,8 +169,6 @@
                   <span *ngIf="!fila.estado_paquete">-</span>
                 </td>
                 <td>{{ fila.fecha_creacion ? (fila.fecha_creacion | date:'shortDate') : '-' }}</td>
-                <td>{{ fila.meta_total | number:'1.1-2' }}</td>
-                <td>{{ fila.real_total | number:'1.1-2' }}</td>
                 <td>{{ fila.rendimiento | number:'1.1-2' }}%</td>
                 <td>
                   <span [class.status-chip-green]="fila.semaforo === 'VERDE'" [class.status-chip-yellow]="fila.semaforo === 'AMARILLO'" [class.status-chip-red]="fila.semaforo === 'ROJO'">{{ fila.semaforo }}</span>
@@ -211,17 +184,13 @@
             <thead>
               <tr>
                 <th>Analista</th>
-                <th>Meta</th>
-                <th>Real</th>
                 <th>Rendimiento</th>
                 <th>Semáforo</th>
               </tr>
             </thead>
             <tbody>
-              <tr *ngFor="let fila of statusPorAnalistaVista">
+              <tr *ngFor="let fila of statusPorAnalistaVista; trackBy: trackByAnalistaId">
                 <td>{{ fila.nombre }}</td>
-                <td>{{ fila.meta_total | number:'1.1-2' }}</td>
-                <td>{{ fila.real_total | number:'1.1-2' }}</td>
                 <td>{{ fila.rendimiento | number:'1.1-2' }}%</td>
                 <td>
                   <span [class.status-chip-green]="fila.semaforo === 'VERDE'" [class.status-chip-yellow]="fila.semaforo === 'AMARILLO'" [class.status-chip-red]="fila.semaforo === 'ROJO'">{{ fila.semaforo }}</span>

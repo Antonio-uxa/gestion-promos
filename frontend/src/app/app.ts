@@ -697,11 +697,12 @@ export class AppComponent implements OnInit, OnDestroy {
     const base = Number(this.sesionesUsuariosBaseSegundos?.[usuarioId] || 0);
     if (!sesion) return Math.max(0, base);
 
+    const elapsed = Number(sesion.elapsed_seconds || 0);
     if (sesion.activo && sesion.started_at) {
-      return Math.max(0, base + Math.floor((Date.now() - new Date(sesion.started_at).getTime()) / 1000));
+      return Math.max(0, base + elapsed + Math.floor((Date.now() - new Date(sesion.started_at).getTime()) / 1000));
     }
 
-    return Math.max(0, base);
+    return Math.max(0, base + elapsed);
   }
 
   get segundosAcumuladosUsuarios(): number {
@@ -1843,7 +1844,6 @@ export class AppComponent implements OnInit, OnDestroy {
     if (rol === 'dashboard') {
       this.cargarStatusOpciones();
       this.cargarStatusResumen();
-      setTimeout(() => this.renderGrafico(), 100);
     }
   }
 
@@ -2171,20 +2171,15 @@ export class AppComponent implements OnInit, OnDestroy {
     return grupos;
   }
 
-  renderGrafico() {
-    if (!this.canvas || !this.canvas.nativeElement) {
-      console.warn('Canvas para gráfico no disponible. Omite renderGrafico.');
-      return;
-    }
-    if (this.chart) this.chart.destroy();
-    const labels = (this.usuarios || []).map(u => u.nombre || '');
-    const data = (this.usuarios || []).map(u => this.calcularTiempoUsuario(u));
-    this.chart = new Chart(this.canvas.nativeElement, {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: [{ label: 'Minutos Totales', data, backgroundColor: '#3498db' }]
-      }
-    });
+  trackByPaqueteNombre(index: number, item: any): string {
+    return item?.nombre || index;
+  }
+
+  trackByPaqueteModo(index: number, item: any): string {
+    return (item?.nombre_paquete || '') + '|' + (item?.modo || '');
+  }
+
+  trackByAnalistaId(index: number, item: any): string | number {
+    return item?.analista_id ?? item?.nombre ?? index;
   }
 }
