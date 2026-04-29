@@ -193,6 +193,9 @@ export class AppComponent implements OnInit, OnDestroy {
   statusCargando: boolean = false;
 
   private sincronizacionPaquetes: any;
+  private ultimaCargaPaquetesMs: number = 0;
+  private ultimaCargaStatusMs: number = 0;
+  private intervaloRefrescoMs: number = 30000; // 30 segundos
 
   appHost = this;
 
@@ -228,10 +231,19 @@ export class AppComponent implements OnInit, OnDestroy {
 
   @HostListener('window:focus')
   onWindowFocus() {
-    this.cargarPaquetesDelBackend();
-    if (this.rolActual === 'dashboard') {
+    const ahora = Date.now();
+    
+    // Solo recargar paquetes si han pasado al menos 30 segundos desde la última carga
+    if (ahora - this.ultimaCargaPaquetesMs >= this.intervaloRefrescoMs) {
+      this.cargarPaquetesDelBackend();
+      this.ultimaCargaPaquetesMs = ahora;
+    }
+    
+    // Solo recargar status si estamos en dashboard y han pasado al menos 30 segundos
+    if (this.rolActual === 'dashboard' && ahora - this.ultimaCargaStatusMs >= this.intervaloRefrescoMs) {
       this.cargarStatusOpciones();
       this.cargarStatusResumen();
+      this.ultimaCargaStatusMs = ahora;
     }
   }
 
@@ -355,6 +367,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   private cargarPaquetesDelBackend() {
+    this.ultimaCargaPaquetesMs = Date.now();
     this.http.get(`${this.baseUrl}/paquetes-analista`).subscribe({
       next: (res: any) => {
         if (res?.paquetes && Array.isArray(res.paquetes)) {
@@ -1848,6 +1861,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   cargarStatusOpciones() {
+    this.ultimaCargaStatusMs = Date.now();
     this.http.get(`${this.baseUrl}/status/opciones`).subscribe({
       next: (res: any) => {
         const opcionesBackend = Array.isArray(res?.paquetes) ? res.paquetes : [];
@@ -2011,6 +2025,7 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   cargarStatusResumen() {
+    this.ultimaCargaStatusMs = Date.now();
     this.statusCargando = true;
     this.cdr.detectChanges();
 
