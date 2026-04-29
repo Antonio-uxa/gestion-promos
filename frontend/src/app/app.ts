@@ -13,6 +13,7 @@ interface PaqueteAnalistaGuardado {
   paqueteAnalistaNombre: string;
   tipoPaquete?: TipoPaquete;
   backendUpdatedAt?: string | null;
+  estadoPaquete?: 'SIN INICIAR' | 'EN PROCESO' | 'FINALIZADO';
   bloqueadoEdicion?: boolean;
   unidadesLoteGeneralFijado?: boolean;
   modoRepartoGeneral?: 'PROMEDIO' | 'MANUAL';
@@ -776,19 +777,12 @@ export class AppComponent implements OnInit, OnDestroy {
 
   private estadoPaqueteDesdeGuardado(paquete?: PaqueteAnalistaGuardado | null): 'ACTIVO' | 'EN PROCESO' | 'FINALIZADO' | 'SIN ESTADO' {
     if (!paquete) return 'SIN ESTADO';
+    const estadoGuardado = (paquete.estadoPaquete || '').toUpperCase();
+    if (estadoGuardado === 'FINALIZADO') return 'FINALIZADO';
+    if (estadoGuardado === 'EN PROCESO') return paquete.corriendo ? 'ACTIVO' : 'EN PROCESO';
     if (paquete.corriendo) return 'ACTIVO';
     if (paquete.sesionFinIso || paquete.bloqueadoEdicion) return 'FINALIZADO';
-
-    const tieneDatos = Boolean(
-      paquete.sesionInicioIso ||
-      paquete.tiempoAcumuladoMs ||
-      paquete.segundos ||
-      (paquete.idsSeleccionados || []).length ||
-      Number(paquete.unidadesLoteGeneral || 0) > 0 ||
-      Object.keys(paquete.registroCantidades || {}).length
-    );
-
-    return tieneDatos ? 'EN PROCESO' : 'SIN ESTADO';
+    return 'SIN ESTADO';
   }
 
   estadoPaqueteGuardado(nombre: string): 'ACTIVO' | 'EN PROCESO' | 'FINALIZADO' | 'SIN ESTADO' {
@@ -1126,6 +1120,12 @@ export class AppComponent implements OnInit, OnDestroy {
     localStorage.setItem('paqueteAnalistaActivo', nombre);
   }
 
+  private estadoCompartidoPaqueteActual(): 'SIN INICIAR' | 'EN PROCESO' | 'FINALIZADO' {
+    if (this.sesionFinIso || this.paqueteBloqueadoEdicion) return 'FINALIZADO';
+    if (this.paqueteAnalistaActivo) return 'EN PROCESO';
+    return 'SIN INICIAR';
+  }
+
   guardarPaqueteActual() {
     const paquete = this.capturarPaqueteActual();
     if (!paquete) return;
@@ -1138,11 +1138,12 @@ export class AppComponent implements OnInit, OnDestroy {
       configuracion: {
         ...paquete,
         paqueteAnalistaNombre: undefined,
-        tipoPaquete: undefined
+        tipoPaquete: undefined,
+        estadoPaquete: this.estadoCompartidoPaqueteActual()
       }
     };
 
-    datosBackend.configuracion.bloqueadoEdicion = false;
+    datosBackend.configuracion.bloqueadoEdicion = this.paqueteBloqueadoEdicion;
 
     this.http.post(`${this.baseUrl}/paquetes-analista`, datosBackend).subscribe({
       next: () => {
@@ -1166,7 +1167,8 @@ export class AppComponent implements OnInit, OnDestroy {
       configuracion: {
         ...paquete,
         paqueteAnalistaNombre: undefined,
-        tipoPaquete: undefined
+        tipoPaquete: undefined,
+        estadoPaquete: this.estadoCompartidoPaqueteActual()
       }
     };
 
@@ -1209,7 +1211,8 @@ export class AppComponent implements OnInit, OnDestroy {
       paqueteAnalistaNombre: nombre,
       tipoPaquete: ((paquete?.tipo_paquete || configuracion?.tipoPaquete || 'ESPECIFICO') as TipoPaquete),
       backendUpdatedAt: paquete?.updated_at || null,
-      bloqueadoEdicion: false,
+      estadoPaquete: ((configuracion?.estadoPaquete || configuracion?.estado_paquete || 'SIN INICIAR') as any),
+      bloqueadoEdicion: Boolean(configuracion?.bloqueadoEdicion),
       ...(configuracion || {})
     };
   }
@@ -1235,7 +1238,7 @@ export class AppComponent implements OnInit, OnDestroy {
     this.unidadesPorUsuarioGeneral = { ...(paquete.unidadesPorUsuarioGeneral || {}) };
     this.unidadesLoteGeneralFijado = Boolean(paquete.unidadesLoteGeneralFijado ?? (this.unidadesLoteGeneral > 0));
     this.registroCantidades = JSON.parse(JSON.stringify(paquete.registroCantidades || this.crearMatrizVacia()));
-    this.paqueteBloqueadoEdicion = false;
+    this.paqueteBloqueadoEdicion = Boolean(paquete.bloqueadoEdicion || paquete.estadoPaquete === 'FINALIZADO');
     this.paqueteAnalistaActivo = true;
     this.cargarSesionPaquete(nombre, this.modoTrabajo, paquete);
     this.cargarSesionesUsuarios(nombre, this.modoTrabajo);
