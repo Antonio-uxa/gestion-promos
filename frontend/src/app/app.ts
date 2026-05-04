@@ -195,7 +195,7 @@ export class AppComponent implements OnInit, OnDestroy {
   private sincronizacionPaquetes: any;
   private ultimaCargaPaquetesMs: number = 0;
   private ultimaCargaStatusMs: number = 0;
-  private intervaloRefrescoMs: number = 30000; // 30 segundos
+  private intervaloRefrescoMs: number = 4 * 60 * 1000; // 4 minutos
 
   appHost = this;
 
@@ -674,12 +674,28 @@ export class AppComponent implements OnInit, OnDestroy {
         const sesiones = Array.isArray(res?.sesiones) ? res.sesiones : [];
         const mapa: { [key: number]: SesionUsuarioPaqueteGuardada } = {};
         const acumulado: { [key: number]: number } = {};
+
+        // Agrupar y sumar elapsed_seconds por usuario
         sesiones.forEach((sesion: SesionUsuarioPaqueteGuardada) => {
           acumulado[sesion.usuario_id] = (acumulado[sesion.usuario_id] || 0) + Number(sesion.elapsed_seconds || 0);
-          if (!mapa[sesion.usuario_id]) {
+          // Preferir guardar la sesión activa como representante del usuario
+          if (!mapa[sesion.usuario_id] || sesion.activo) {
             mapa[sesion.usuario_id] = sesion;
           }
         });
+
+        // Para evitar doble conteo: restar del acumulado el elapsed_seconds
+        // de la sesión representativa (normalmente la activa). De este modo
+        // `sesionesUsuariosBaseSegundos` contiene solo los segundos de sesiones
+        // previas/otras y `obtenerSegundosSesionUsuario` puede sumar correctamente
+        // el elapsed de la sesión representativa más el tiempo en curso.
+        Object.keys(mapa).forEach((uidStr) => {
+          const uid = Number(uidStr);
+          const rep = mapa[uid];
+          const repElapsed = Number(rep?.elapsed_seconds || 0);
+          acumulado[uid] = Math.max(0, (acumulado[uid] || 0) - repElapsed);
+        });
+
         this.sesionesUsuarios = mapa;
         this.sesionesUsuariosBaseSegundos = acumulado;
         this.iniciarRefrescoUsuarios();
@@ -709,24 +725,50 @@ export class AppComponent implements OnInit, OnDestroy {
     const sesion = this.obtenerSesionUsuario(usuarioId);
     const base = Number(this.sesionesUsuariosBaseSegundos?.[usuarioId] || 0);
     if (!sesion) return Math.max(0, base);
-
     const elapsed = Number(sesion.elapsed_seconds || 0);
     if (sesion.activo && sesion.started_at) {
-      return Math.max(0, base + elapsed + Math.floor((Date.now() - new Date(sesion.started_at).getTime()) / 1000));
+      const startedMs = new Date(sesion.started_at).getTime();
+      const live = Math.floor((Date.now() - startedMs) / 1000);
+
+      // Evitar doble conteo: tomar el mayor entre lo que reporta el backend
+      // (`elapsed`) y el tiempo en curso (`live`). Esto previene sumar ambos
+      // valores cuando el backend ya incluye el tiempo activo.
+      const best = Math.max(elapsed, live);
+      return Math.max(0, base + best);
     }
 
     return Math.max(0, base + elapsed);
   }
 
   get segundosAcumuladosUsuarios(): number {
-    if (!Array.isArray(this.usuarios) || this.usuarios.length === 0) return 0;
-    return this.usuarios.reduce((acc, u: any) => acc + this.obtenerSegundosSesionUsuario(u.id), 0);
+    const ahora = Date.now();
+    if (!this._segundosAcumuladosUsuariosCache || (ahora - this._segundosAcumuladosUsuariosCache.ts) > 900) {
+      if (!Array.isArray(this.usuarios) || this.usuarios.length === 0) {
+        this._segundosAcumuladosUsuariosCache = { ts: ahora, val: 0 };
+      } else {
+        const val = this.usuarios.reduce((acc, u: any) => acc + this.obtenerSegundosSesionUsuario(u.id), 0);
+        this._segundosAcumuladosUsuariosCache = { ts: ahora, val };
+      }
+    }
+    return this._segundosAcumuladosUsuariosCache.val;
   }
 
+  private _segundosAcumuladosUsuariosCache: { ts: number; val: number } | null = null;
+
   get segundosAcumuladosSeleccionadosGeneral(): number {
-    if (!Array.isArray(this.idsSeleccionados) || this.idsSeleccionados.length === 0) return 0;
-    return this.idsSeleccionados.reduce((acc, id) => acc + this.obtenerSegundosSesionUsuario(id), 0);
+    const ahora = Date.now();
+    if (!this._segundosSeleccionadosCache || (ahora - this._segundosSeleccionadosCache.ts) > 900) {
+      if (!Array.isArray(this.idsSeleccionados) || this.idsSeleccionados.length === 0) {
+        this._segundosSeleccionadosCache = { ts: ahora, val: 0 };
+      } else {
+        const val = this.idsSeleccionados.reduce((acc, id) => acc + this.obtenerSegundosSesionUsuario(id), 0);
+        this._segundosSeleccionadosCache = { ts: ahora, val };
+      }
+    }
+    return this._segundosSeleccionadosCache.val;
   }
+
+  private _segundosSeleccionadosCache: { ts: number; val: number } | null = null;
 
   get detalleAcumuladoUsuarios(): Array<{ id: number; nombre: string; segundos: number; activo: boolean; inicio: string | null; fin: string | null }> {
     if (!Array.isArray(this.usuarios) || this.usuarios.length === 0) return [];
@@ -1492,14 +1534,21 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   get estadoComparativoGeneral(): Array<{ id: number; nombre: string; promos: number; meta: number; real: number; delta: number }> {
-    return this.usuariosSeleccionadosGeneral.map((u: any) => {
-      const promos = Number(this.unidadesPorUsuarioGeneral[u.id] || 0);
-      const meta = promos * Number(u?.tiempo_general || 0);
-      const real = this.obtenerSegundosSesionUsuario(u.id) / 60;
-      const delta = real - meta;
-      return { id: u.id, nombre: u.nombre, promos, meta, real, delta };
-    });
+    const ahora = Date.now();
+    if (!this._estadoComparativoCache || (ahora - this._estadoComparativoCache.ts) > 900) {
+      const result = this.usuariosSeleccionadosGeneral.map((u: any) => {
+        const promos = Number(this.unidadesPorUsuarioGeneral[u.id] || 0);
+        const meta = promos * Number(u?.tiempo_general || 0);
+        const real = this.obtenerSegundosSesionUsuario(u.id) / 60;
+        const delta = real - meta;
+        return { id: u.id, nombre: u.nombre, promos, meta, real, delta };
+      });
+      this._estadoComparativoCache = { ts: ahora, val: result };
+    }
+    return this._estadoComparativoCache.val;
   }
+
+  private _estadoComparativoCache: { ts: number; val: Array<{ id: number; nombre: string; promos: number; meta: number; real: number; delta: number }> } | null = null;
 
   setModoRepartoGeneral(modo: 'PROMEDIO' | 'MANUAL') {
     if (this.paqueteBloqueadoEdicion) return;

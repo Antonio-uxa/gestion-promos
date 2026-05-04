@@ -341,11 +341,7 @@
               </div>
               <div>
                 <small>Meta: {{ item.meta | number:'1.1-2' }} min</small>
-                <small>Real: {{ item.real | number:'1.1-2' }} min</small>
               </div>
-              <span [class.analista-general-delta-ok]="item.delta <= 0" [class.analista-general-delta-warn]="item.delta > 0">
-                {{ (item.delta > 0 ? '+' : '') + (item.delta | number:'1.1-2') + ' min' }}
-              </span>
             </div>
           </div>
 
